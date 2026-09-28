@@ -7,7 +7,7 @@ frame, and writes world file sidecars (.jgw, .pgw, .tfw) plus a projection file
 correctly on load. No pixel resampling, no feature matching, no rewritten
 rasters.
 
-**Try it in the browser:** https://a-charvin.github.io/worldfilegenerator/
+**Try it in the browser:** [WorldFileGenerator](https://a-charvin.github.io/WorldFileGenerator/)
 
 The web tool is the primary interface. The Python script is kept for offline or
 bulk use inside an ArcGIS Pro environment.
@@ -66,7 +66,7 @@ Sidecar generation itself runs fully local.
 
 ### Access
 
-Open https://a-charvin.github.io/worldfilegenerator/ in a browser, or download
+Open [https://a-charvin.github.io/WorldFileGenerator/](https://a-charvin.github.io/WorldFileGenerator/) in a browser, or download
 `index.html` and open the file directly.
 
 ## Python script (offline alternative)
