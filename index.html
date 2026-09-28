@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontenac FlightDeck</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-imageoverlay-rotated@0.2.1/Leaflet.ImageOverlay.Rotated.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #f8fafc; --panel: #ffffff; --panel-hover: #f1f5f9; --border: #e2e8f0;
+    --border-strong: #cbd5e1; --text: #0f172a; --text-muted: #64748b; --text-faint: #94a3b8;
+    --primary: #2563eb; --primary-hover: #1d4ed8; --primary-soft: #eff6ff;
+    --ok: #16a34a; --err: #dc2626; --radius: 8px; --radius-lg: 12px;
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+  [data-theme="dark"] {
+    --bg: #0f172a; --panel: #1e293b; --panel-hover: #334155; --border: #334155;
+    --border-strong: #475569; --text: #f8fafc; --text-muted: #94a3b8; --text-faint: #64748b;
+    --primary: #3b82f6; --primary-hover: #60a5fa; --primary-soft: #1e3a8a;
+    --ok: #22c55e; --err: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); transition: background 0.2s, color 0.2s; }
+  #app { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+
+  #sidebar { width: 400px; min-width: 400px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 1000; transition: background 0.2s; }
+  #sidebar-header { padding: 24px 24px 20px; border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .brand-title { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }
+  .brand-title svg { color: var(--primary); }
+  #theme-btn { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 6px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; }
+  #theme-btn:hover { background: var(--panel-hover); color: var(--text); }
+  #sidebar-header p { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 0; }
+
+  #load-section, #basemap-section { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  button { font-family: inherit; border: none; cursor: pointer; transition: all 0.15s; }
+  button:active { transform: translateY(1px); }
+  #load-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; background: var(--primary); color: white; border-radius: var(--radius); font-size: 14px; font-weight: 600; box-shadow: var(--shadow); }
+  #load-btn:hover { background: var(--primary-hover); }
+  #load-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+  #load-btn.loading svg.plus { display: none; }
+  #load-btn .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  #load-btn.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #sidecar-btn { width: 100%; margin-top: 8px; padding: 9px 16px; background: transparent; border: 1px solid var(--primary); color: var(--primary); border-radius: var(--radius); font-size: 13.5px; font-weight: 600; }
+  #sidecar-btn:hover { background: var(--primary-soft); }
+
+  .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 10px; }
+  .basemap-options { display: flex; gap: 4px; background: var(--bg); padding: 4px; border-radius: var(--radius); border: 1px solid var(--border); }
+  .basemap-btn { flex: 1; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 500; padding: 6px 0; border-radius: 6px; }
+  .basemap-btn:hover { color: var(--text); background: var(--panel-hover); }
+  .basemap-btn.active { background: var(--panel); color: var(--primary); box-shadow: var(--shadow); font-weight: 600; }
+
+  #groups-section { flex: 1; overflow-y: auto; padding: 16px 0; }
+  #empty-state { color: var(--text-faint); font-size: 13px; text-align: center; padding: 40px 24px; line-height: 1.6; }
+  .group { margin: 0 16px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); }
+  .group-header { display: grid; grid-template-columns: 20px 18px 1fr auto auto; align-items: center; gap: 10px; padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--border); cursor: pointer; }
+  .group.collapsed .group-header { border-bottom: none; }
+  .chevron { background: none; padding: 2px; color: var(--text-faint); display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+  .chevron:hover { color: var(--text); background: var(--panel-hover); }
+  .chevron svg { transition: transform 0.2s; }
+  .group.collapsed .chevron svg { transform: rotate(-90deg); }
+  .group-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon-btn { background: none; padding: 4px; color: var(--text-faint); display: flex; align-items: center; border-radius: 4px; }
+  .icon-btn:hover { color: var(--primary); background: var(--primary-soft); }
+  .icon-btn.danger:hover { color: var(--err); background: #fef2f2; }
+  [data-theme="dark"] .icon-btn.danger:hover { background: #450a0a; }
+  .group-count { font-size: 12px; font-weight: 500; color: var(--text-faint); background: var(--bg); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); }
+  .group-actions { display: flex; align-items: center; gap: 2px; }
+
+  input[type="checkbox"] { appearance: none; width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: 4px; background: var(--panel); cursor: pointer; position: relative; flex-shrink: 0; }
+  input[type="checkbox"]:checked { background: var(--primary); border-color: var(--primary); }
+  input[type="checkbox"]:checked::after { content: ""; position: absolute; left: 4.5px; top: 1px; width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  input[type="checkbox"]:indeterminate { background: var(--primary); border-color: var(--primary); }
+  input[type="checkbox"]:indeterminate::after { content: ""; position: absolute; left: 3px; top: 6px; width: 8px; height: 2px; background: white; }
+
+  .layer-list { padding: 8px; }
+  .group.collapsed .layer-list { display: none; }
+  .layer-item { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; transition: background 0.1s; cursor: pointer; border: 1px solid transparent; }
+  .layer-item:hover { background: var(--panel-hover); }
+  .layer-item.disabled { opacity: 0.5; }
+  .layer-item.selected { background: var(--primary-soft); border-color: var(--primary); }
+  .layer-item.selected label { color: var(--primary); font-weight: 600; }
+  .layer-item label { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .layer-item.disabled label { color: var(--text-faint); }
+
+  #transform-panel { padding: 16px 24px; border-top: 1px solid var(--border); background: var(--panel); display: none; flex-direction: column; gap: 12px; }
+  #transform-panel.visible { display: flex; }
+  .transform-header { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+  .transform-header span { font-family: monospace; font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+
+  .slider-container { display: flex; align-items: center; gap: 10px; }
+  input[type="range"] { flex: 1; appearance: none; -webkit-appearance: none; height: 6px; background: var(--border); border-radius: 3px; outline: none; }
+  input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; background: var(--primary); border-radius: 50%; cursor: pointer; }
+  input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; background: var(--primary); border: none; border-radius: 50%; cursor: pointer; }
+  input[type="range"]::-moz-range-track { height: 6px; background: var(--border); border-radius: 3px; }
+
+  .transform-actions { display: flex; gap: 8px; }
+  .btn-secondary { flex: 1; padding: 8px; background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; }
+  .btn-secondary:hover { background: var(--panel-hover); color: var(--text); }
+  .btn-secondary.active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
+
+  /* Generator */
+  #generator-section { display: none; flex: 1; flex-direction: column; padding: 16px 24px; gap: 12px; min-height: 0; }
+  .gen-row { display: flex; gap: 8px; align-items: center; }
+  .gen-label { font-size: 12px; color: var(--text-muted); width: 96px; flex-shrink: 0; }
+  select, .gen-input { font-family: inherit; font-size: 12.5px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+  select:focus, .gen-input:focus { outline: 2px solid var(--primary); }
+  select { flex: 1; min-width: 0; }
+  .gen-input { width: 92px; }
+  .gen-table-wrap { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; min-height: 0; }
+  table.gen-table { border-collapse: collapse; width: 100%; font-size: 11px; font-family: monospace; }
+  .gen-table th, .gen-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .gen-table th { position: sticky; top: 0; background: var(--panel-hover); color: var(--text-muted); font-weight: 600; z-index: 1; }
+  .gen-table td.warn { color: var(--err); }
+  .gen-write { width: 100%; padding: 10px; background: var(--primary); color: #fff; border-radius: var(--radius); font-size: 14px; font-weight: 600; }
+  .gen-write:hover { background: var(--primary-hover); }
+  .gen-write:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  #status-bar { padding: 14px 24px; border-top: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-muted); min-height: 20px; background: var(--panel); }
+  #status-bar.err { color: var(--err); }
+  #status-bar.ok { color: var(--ok); }
+
+  #map { flex: 1; height: 100%; background: #e2e8f0; }
+  [data-theme="dark"] #map { background: #0f172a; }
+  .leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,0.8) !important; border-radius: 4px 0 0 0; }
+  [data-theme="dark"] .leaflet-control-attribution { background: rgba(15, 23, 42, 0.8) !important; color: #94a3b8 !important; }
+  .leaflet-control-zoom { border: none !important; box-shadow: var(--shadow-lg) !important; border-radius: var(--radius) !important; overflow: hidden; }
+  .leaflet-control-zoom a { font-family: inherit; background: var(--panel) !important; color: var(--text) !important; border-bottom: 1px solid var(--border) !important; width: 32px !important; height: 32px !important; line-height: 32px !important; font-size: 16px !important; }
+  .leaflet-control-zoom a:hover { background: var(--panel-hover) !important; color: var(--primary) !important; }
+
+  #drop-hint { position: fixed; inset: 0; background: rgba(37, 99, 235, 0.10); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 2000; pointer-events: none; }
+  #drop-hint.visible { display: flex; }
+  #drop-hint .box { border: 2px dashed var(--primary); border-radius: 16px; padding: 36px 56px; background: var(--panel); font-size: 15px; font-weight: 600; color: var(--primary); box-shadow: var(--shadow-lg); text-align: center; line-height: 1.5; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div id="drop-hint"><div class="box">Drop drone folders or files here<br><span style="font-weight:400; font-size:12px; color:var(--text-muted);">Images and world files are read in place, nothing is copied</span></div></div>
+
+<input type="file" id="sidecar-input" webkitdirectory directory multiple style="display:none;">
+
+<div id="app">
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <div class="brand">
+        <div class="brand-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Frontenac FlightDeck
+        </div>
+        <button id="theme-btn" title="Toggle theme"></button>
+      </div>
+      <p>View georeferenced drone captures, and generate world file sidecars for folders that do not have them yet.</p>
+    </div>
+
+    <div id="load-section">
+      <button id="load-btn">
+        <svg class="plus" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="spinner"></span>
+        <span>Add Drone Folder</span>
+      </button>
+      <button id="sidecar-btn">Generate Sidecars (zip)</button>
+    </div>
+
+    <div id="basemap-section">
+      <div class="section-label">Basemap</div>
+      <div class="basemap-options">
+        <button class="basemap-btn active" data-map="Satellite">Satellite</button>
+        <button class="basemap-btn" data-map="Street Map">Street</button>
+        <button class="basemap-btn" data-map="No Basemap">None</button>
+      </div>
+    </div>
+
+    <div id="groups-section">
+      <div id="empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        No folders loaded yet.<br>Add a drone folder, or drop one anywhere on this window.
+      </div>
+    </div>
+
+    <div id="generator-section">
+      <div class="gen-row" style="justify-content:space-between;">
+        <strong id="gen-folder-name" style="font-size:13px;"></strong>
+        <button class="btn-secondary" id="gen-back-btn" style="flex:0 0 auto; padding:6px 12px;">Back</button>
+      </div>
+      <div class="gen-row">
+        <span class="gen-label">Drone model</span>
+        <select id="model-select"></select>
+      </div>
+      <div class="gen-row" id="custom-fields" style="display:none;">
+        <span class="gen-label">Sensor mm</span>
+        <input id="custom-sensor" class="gen-input" type="number" step="0.1" value="17.3">
+        <span class="gen-label" style="width:auto;">Focal mm</span>
+        <input id="custom-focal" class="gen-input" type="number" step="0.01" value="14.45">
+      </div>
+      <div class="gen-row">
+        <span class="gen-label">Alt fallback m</span>
+        <input id="alt-override" class="gen-input" type="number" step="0.1" placeholder="blank = EXIF alt">
+        <label style="font-size:12px; color:var(--text-muted); display:flex; gap:6px; align-items:center; cursor:pointer;">
+          <input type="checkbox" id="skip-existing" checked> Skip existing
+        </label>
+      </div>
+      <div class="gen-table-wrap">
+        <table class="gen-table">
+          <thead><tr><th>File</th><th>Camera</th><th>Size</th><th>Alt m</th><th>Yaw</th><th>GSD</th><th>Zone</th><th>Status</th></tr></thead>
+          <tbody id="gen-table-body"></tbody>
+        </table>
+      </div>
+      <button class="gen-write" id="gen-write-btn">Generate Sidecars ZIP</button>
+    </div>
+
+    <div id="transform-panel">
+      <div class="transform-header">
+        Transform Selected Image
+        <span id="rotation-value">0.0 deg</span>
+      </div>
+      <div class="slider-container">
+        <input type="range" id="rotation-slider" min="-180" max="180" step="0.1" value="0">
+      </div>
+      <div class="transform-actions">
+        <button class="btn-secondary" id="reset-transform-btn">Reset</button>
+        <button class="btn-secondary" id="drag-mode-btn">Enable Move</button>
+      </div>
+    </div>
+
+    <div id="status-bar"></div>
+  </aside>
+
+  <div id="map"></div>
+</div>
+
+<script>
+  /* ================= Map, basemaps, theme ================= */
+  const map = L.map('map', { zoomControl: false, maxZoom: 23, minZoom: 2 }).setView([45.0, -76.7], 13);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  proj4.defs("EPSG:32618", "+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs");
+
+  const basemaps = {
+    "Satellite": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri', maxZoom: 23 }),
+    "Street Map": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 23 }),
+    "No Basemap": null
+  };
+  let currentBasemap = basemaps["Satellite"];
+  currentBasemap.addTo(map);
+
+  document.querySelectorAll('.basemap-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.basemap-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const mapName = btn.getAttribute('data-map');
+      if (currentBasemap) map.removeLayer(currentBasemap);
+      currentBasemap = basemaps[mapName];
+      if (currentBasemap) currentBasemap.addTo(map);
+    });
+  });
+
+  const themeBtn = document.getElementById('theme-btn');
+  const ICON_SUN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+  const ICON_MOON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  function updateThemeIcon() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    themeBtn.innerHTML = isDark ? ICON_SUN : ICON_MOON;
+  }
+  themeBtn.addEventListener('click', () => {
+    document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+    updateThemeIcon();
+  });
+  updateThemeIcon();
+
+  /* ================= Shared state and helpers ================= */
+  const loadBtn = document.getElementById('load-btn');
+  const sidecarBtn = document.getElementById('sidecar-btn');
+  const sidecarInput = document.getElementById('sidecar-input');
+  const groupsSection = document.getElementById('groups-section');
+  const generatorSection = document.getElementById('generator-section');
+  const emptyStateEl = document.getElementById('empty-state');
+  const statusEl = document.getElementById('status-bar');
+  const transformPanel = document.getElementById('transform-panel');
+  const rotationSlider = document.getElementById('rotation-slider');
+  const rotationValue = document.getElementById('rotation-value');
+  const resetBtn = document.getElementById('reset-transform-btn');
+  const dragModeBtn = document.getElementById('drag-mode-btn');
+  const dropHint = document.getElementById('drop-hint');
+
+  const modelSelect = document.getElementById('model-select');
+  const customFields = document.getElementById('custom-fields');
+  const customSensorEl = document.getElementById('custom-sensor');
+  const customFocalEl = document.getElementById('custom-focal');
+  const altOverrideEl = document.getElementById('alt-override');
+  const skipExistingEl = document.getElementById('skip-existing');
+  const genFolderNameEl = document.getElementById('gen-folder-name');
+  const genTableBody = document.getElementById('gen-table-body');
+  const genWriteBtn = document.getElementById('gen-write-btn');
+  const genBackBtn = document.getElementById('gen-back-btn');
+
+  const ICON_CHEVRON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  const ICON_TARGET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>';
+  const ICON_CLOSE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+  const groups = [];
+  let groupCounter = 0;
+  let currentSelection = null;
+  let isDragModeEnabled = false;
+  let isDraggingImage = false;
+  let dragStartPoint = null;
+  let dragStartCorners = null;
+  let rafPending = false;
+
+  let genItems = [];
+  let genFolderName = '';
+  let genWorldBases = new Set();
+  let genDetectedModelId = null;
+
+  function setStatus(msg, kind) { statusEl.textContent = msg || ''; statusEl.className = kind ? kind : ''; }
+  function refreshEmptyState() { emptyStateEl.style.display = groups.length ? 'none' : 'block'; }
+  function uniqueGroupName(base) {
+    const used = new Set(groups.map(g => g.name));
+    if (!used.has(base)) return base;
+    let n = 2; while (used.has(`${base} (${n})`)) n++;
+    return `${base} (${n})`;
+  }
+  function describeError(err) {
+    if (!err) return 'unknown error';
+    if (typeof err === 'string') return err;
+    if (err.message) return err.message;
+    if (err.type && err.target) return `a resource failed to load (${err.type} event)`;
+    return String(err);
+  }
+
+  async function readImageSize(file) {
+    try {
+      const head = new Uint8Array(await file.slice(0, 512 * 1024).arrayBuffer());
+      const dv = new DataView(head.buffer);
+      if (head[0] === 0x89 && head[1] === 0x50) {
+        return { width: dv.getUint32(16), height: dv.getUint32(20) };
+      }
+      if (head[0] === 0xFF && head[1] === 0xD8) {
+        let i = 2;
+        while (i < head.length - 9) {
+          if (head[i] !== 0xFF) { i++; continue; }
+          const marker = head[i + 1];
+          if (marker === 0xFF) { i++; continue; }
+          if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+          if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+            return { width: dv.getUint16(i + 7), height: dv.getUint16(i + 5) };
+          }
+          i += 2 + dv.getUint16(i + 2);
+        }
+      }
+    } catch (e) { /* fall through to decode attempt */ }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = () => rej(new Error('image could not be decoded'));
+      });
+      return { width: img.naturalWidth, height: img.naturalHeight };
+    } catch (e) {
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /* ================= Viewer: groups, transforms, selection ================= */
+  function updateGroupHeaderState(group) {
+    const total = group.layers.length;
+    const checkedCount = group.layers.filter(l => l.checked).length;
+    group.checkboxEl.checked = checkedCount === total && total > 0;
+    group.checkboxEl.indeterminate = checkedCount > 0 && checkedCount < total;
+    group.countEl.textContent = total ? `${checkedCount}/${total}` : '';
+  }
+
+  function toggleLayer(group, entry, checked) {
+    entry.checked = checked;
+    entry.rowEl.querySelector('input').checked = checked;
+    entry.rowEl.classList.toggle('disabled', !checked);
+    if (checked) map.addLayer(entry.overlay);
+    else map.removeLayer(entry.overlay);
+    updateGroupHeaderState(group);
+  }
+  function toggleGroup(group, checked) { group.layers.forEach(entry => toggleLayer(group, entry, checked)); }
+  function groupBounds(group) { return group.layers.reduce((acc, l) => acc.concat(l.bounds), []); }
+
+  function rotatePoint(center, point, angleDeg) {
+    const cosLat = Math.cos(center.lat * Math.PI / 180);
+    const dLat = point.lat - center.lat;
+    const dLng = (point.lng - center.lng) * cosLat;
+    const rad = angleDeg * Math.PI / 180;
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
+    const newDLat = dLat * cosA - dLng * sinA;
+    const newDLng = dLat * sinA + dLng * cosA;
+    return L.latLng(center.lat + newDLat, center.lng + newDLng / cosLat);
+  }
+
+  function getCenter(corners) {
+    let latSum = 0, lngSum = 0;
+    corners.forEach(c => { latSum += c.lat; lngSum += c.lng; });
+    return L.latLng(latSum / 4, lngSum / 4);
+  }
+
+  function transformedCorners(entry) {
+    const center = getCenter(entry.baseCorners);
+    return entry.baseCorners.map(c => rotatePoint(center, c, entry.currentRotation));
+  }
+
+  function bindOverlayEvents(entry) {
+    entry.overlay.on('click', (e) => { L.DomEvent.stopPropagation(e); selectLayer(entry); });
+    const imgEl = entry.overlay.getElement();
+    if (!imgEl) return;
+    imgEl.decoding = 'async';
+    imgEl.style.cursor = isDragModeEnabled ? 'grab' : 'pointer';
+    imgEl.addEventListener('mousedown', (e) => {
+      if (!isDragModeEnabled) return;
+      selectLayer(entry);
+      isDraggingImage = true;
+      dragStartPoint = map.mouseEventToContainerPoint(e);
+      dragStartCorners = entry.baseCorners.map(c => L.latLng(c.lat, c.lng));
+      document.body.style.cursor = 'grabbing';
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+    });
+  }
+
+  function refreshOverlay(entry) {
+    const corners = transformedCorners(entry);
+    if (entry.overlay) map.removeLayer(entry.overlay);
+    entry.overlay = L.imageOverlay.rotated(entry.url, corners[0], corners[1], corners[2], {
+      opacity: 0.9, interactive: true
+    }).addTo(map);
+    entry.bounds = corners;
+    bindOverlayEvents(entry);
+  }
+
+  function requestRefresh(entry) {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      refreshOverlay(entry);
+    });
+  }
+
+  function selectLayer(entry) {
+    if (currentSelection) currentSelection.rowEl.classList.remove('selected');
+    currentSelection = entry;
+    entry.rowEl.classList.add('selected');
+    entry.rowEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    transformPanel.classList.add('visible');
+    rotationSlider.value = entry.currentRotation;
+    rotationValue.textContent = `${entry.currentRotation.toFixed(1)} deg`;
+    dragModeBtn.classList.toggle('active', isDragModeEnabled);
+    const imgEl = entry.overlay.getElement();
+    if (imgEl) imgEl.style.cursor = isDragModeEnabled ? 'grab' : 'pointer';
+  }
+
+  rotationSlider.addEventListener('input', (e) => {
+    if (!currentSelection) return;
+    currentSelection.currentRotation = parseFloat(e.target.value);
+    rotationValue.textContent = `${currentSelection.currentRotation.toFixed(1)} deg`;
+    requestRefresh(currentSelection);
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (!currentSelection) return;
+    currentSelection.currentRotation = 0;
+    currentSelection.baseCorners = currentSelection.originalCorners.map(c => L.latLng(c.lat, c.lng));
+    rotationSlider.value = 0;
+    rotationValue.textContent = '0.0 deg';
+    refreshOverlay(currentSelection);
+  });
+
+  dragModeBtn.addEventListener('click', () => {
+    isDragModeEnabled = !isDragModeEnabled;
+    dragModeBtn.classList.toggle('active', isDragModeEnabled);
+    dragModeBtn.textContent = isDragModeEnabled ? 'Disable Move' : 'Enable Move';
+    groups.forEach(g => g.layers.forEach(entry => {
+      const imgEl = entry.overlay.getElement();
+      if (imgEl) imgEl.style.cursor = isDragModeEnabled ? 'grab' : 'pointer';
+    }));
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDraggingImage || !currentSelection) return;
+    const currentPoint = map.mouseEventToContainerPoint(e);
+    const startLatLng = map.containerPointToLatLng(dragStartPoint);
+    const currentLatLng = map.containerPointToLatLng(currentPoint);
+    const dLat = currentLatLng.lat - startLatLng.lat;
+    const dLng = currentLatLng.lng - startLatLng.lng;
+    currentSelection.baseCorners = dragStartCorners.map(c => L.latLng(c.lat + dLat, c.lng + dLng));
+    requestRefresh(currentSelection);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDraggingImage) {
+      isDraggingImage = false;
+      document.body.style.cursor = 'default';
+      if (currentSelection && isDragModeEnabled) {
+        const imgEl = currentSelection.overlay.getElement();
+        if (imgEl) imgEl.style.cursor = 'grab';
+      }
+    }
+  });
+
+  function createGroup(name) {
+    groupCounter++;
+    const group = { id: `g${groupCounter}`, name: uniqueGroupName(name), layers: [], collapsed: false, urls: [] };
+    const el = document.createElement('div'); el.className = 'group';
+    const header = document.createElement('div'); header.className = 'group-header';
+    const chevron = document.createElement('button'); chevron.className = 'chevron'; chevron.innerHTML = ICON_CHEVRON;
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = true;
+    const nameWrap = document.createElement('div'); nameWrap.className = 'group-name-wrap';
+    const nameLabel = document.createElement('span'); nameLabel.className = 'group-name'; nameLabel.textContent = group.name;
+    nameWrap.appendChild(nameLabel);
+    const count = document.createElement('span'); count.className = 'group-count';
+    const actions = document.createElement('div'); actions.className = 'group-actions';
+    const locateBtn = document.createElement('button'); locateBtn.className = 'icon-btn'; locateBtn.innerHTML = ICON_TARGET;
+    const closeBtn = document.createElement('button'); closeBtn.className = 'icon-btn danger'; closeBtn.innerHTML = ICON_CLOSE;
+    actions.appendChild(locateBtn); actions.appendChild(closeBtn);
+    header.appendChild(chevron); header.appendChild(checkbox); header.appendChild(nameWrap); header.appendChild(count); header.appendChild(actions);
+    const layerList = document.createElement('div'); layerList.className = 'layer-list';
+    el.appendChild(header); el.appendChild(layerList); groupsSection.appendChild(el);
+    group.el = el; group.checkboxEl = checkbox; group.countEl = count; group.layerListEl = layerList;
+
+    header.addEventListener('click', (e) => { if (e.target === checkbox || e.target.closest('.icon-btn')) return; group.collapsed = !group.collapsed; el.classList.toggle('collapsed', group.collapsed); });
+    checkbox.addEventListener('change', (e) => { e.stopPropagation(); toggleGroup(group, checkbox.checked); });
+    locateBtn.addEventListener('click', (e) => { e.stopPropagation(); const bounds = groupBounds(group); if (bounds.length) map.fitBounds(bounds, { maxZoom: 23, padding: [20, 20] }); });
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      group.layers.forEach(l => {
+        map.removeLayer(l.overlay);
+        if (currentSelection === l) { currentSelection = null; transformPanel.classList.remove('visible'); }
+      });
+      group.urls.forEach(u => URL.revokeObjectURL(u));
+      el.remove();
+      const idx = groups.indexOf(group);
+      if (idx >= 0) groups.splice(idx, 1);
+      refreshEmptyState();
+    });
+    groups.push(group); refreshEmptyState(); return group;
+  }
+
+  function addLayerRow(group, entry) {
+    const row = document.createElement('div'); row.className = 'layer-item';
+    const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = true;
+    const label = document.createElement('label'); label.textContent = entry.name;
+    const locateBtn = document.createElement('button'); locateBtn.className = 'icon-btn'; locateBtn.innerHTML = ICON_TARGET;
+
+    label.addEventListener('click', (e) => { e.stopPropagation(); selectLayer(entry); });
+    row.addEventListener('click', (e) => { if (e.target !== chk && e.target !== locateBtn) selectLayer(entry); });
+    chk.addEventListener('change', (e) => { e.stopPropagation(); toggleLayer(group, entry, chk.checked); });
+    locateBtn.addEventListener('click', (e) => { e.stopPropagation(); map.fitBounds(entry.bounds, { maxZoom: 23, padding: [20, 20] }); });
+
+    row.appendChild(chk); row.appendChild(label); row.appendChild(locateBtn);
+    group.layerListEl.appendChild(row); entry.rowEl = row;
+  }
+
+  async function buildGroupFromFiles(name, files) {
+    const group = createGroup(name);
+    const images = [];
+    const worldFiles = {};
+
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) images.push(file);
+      else if (lower.endsWith('.jgw') || lower.endsWith('.pgw') || lower.endsWith('.tfw')) worldFiles[lower] = file;
+    }
+
+    let loadedCount = 0;
+    let skippedCount = 0;
+    const reasons = [];
+
+    for (const imgFile of images) {
+      try {
+        const dot = imgFile.name.lastIndexOf('.');
+        const baseName = imgFile.name.substring(0, dot).toLowerCase();
+        const worldFile = worldFiles[baseName + '.jgw'] ||
+                          worldFiles[baseName + '.pgw'] ||
+                          worldFiles[baseName + '.tfw'];
+        if (!worldFile) {
+          skippedCount++;
+          reasons.push(`${imgFile.name}: no matching world file in this drop`);
+          continue;
+        }
+
+        const raw = await worldFile.text();
+        const lines = raw.replace(/^\uFEFF/, '').trim().split(/\s+/).map(parseFloat).filter(n => !isNaN(n));
+        if (lines.length < 6) {
+          skippedCount++;
+          reasons.push(`${imgFile.name}: world file ${worldFile.name} gave ${lines.length} usable numbers, expected 6`);
+          continue;
+        }
+        const [A, D, B, E, C, F] = lines;
+
+        const size = await readImageSize(imgFile);
+        if (!size || !size.width || !size.height) {
+          skippedCount++;
+          reasons.push(`${imgFile.name}: image could not be decoded`);
+          continue;
+        }
+        const width = size.width;
+        const height = size.height;
+
+        const pixelToLatLng = (col, row) => {
+          const x = A * col + B * row + C;
+          const y = D * col + E * row + F;
+          const [lon, lat] = proj4("EPSG:32618", "EPSG:4326", [x, y]);
+          return L.latLng(lat, lon);
+        };
+
+        const corners = [
+          pixelToLatLng(-0.5, -0.5),
+          pixelToLatLng(width - 0.5, -0.5),
+          pixelToLatLng(-0.5, height - 0.5),
+          pixelToLatLng(width - 0.5, height - 0.5)
+        ];
+
+        const imgUrl = URL.createObjectURL(imgFile);
+        group.urls.push(imgUrl);
+
+        const entryObj = {
+          name: imgFile.name,
+          url: imgUrl,
+          overlay: null,
+          bounds: corners.slice(0, 4),
+          checked: true,
+          originalCorners: corners.map(c => L.latLng(c.lat, c.lng)),
+          baseCorners: corners.map(c => L.latLng(c.lat, c.lng)),
+          currentRotation: 0
+        };
+
+        entryObj.overlay = L.imageOverlay.rotated(imgUrl, corners[0], corners[1], corners[2], {
+          opacity: 0.9, interactive: true
+        }).addTo(map);
+        bindOverlayEvents(entryObj);
+
+        group.layers.push(entryObj);
+        addLayerRow(group, entryObj);
+        loadedCount++;
+      } catch (err) {
+        skippedCount++;
+        reasons.push(`${imgFile.name}: ${describeError(err)}`);
+      }
+    }
+
+    reasons.forEach(r => console.warn('Skipped ' + r));
+    updateGroupHeaderState(group);
+    if (loadedCount > 0) {
+      map.fitBounds(groupBounds(group), { padding: [30, 30] });
+    } else {
+      group.urls.forEach(u => URL.revokeObjectURL(u));
+      const idx = groups.indexOf(group);
+      if (idx >= 0) groups.splice(idx, 1);
+      group.el.remove();
+      refreshEmptyState();
+    }
+    return { loadedCount, skippedCount, reasons };
+  }
+
+  /* ================= Viewer: folder picker and drop ================= */
+  loadBtn.addEventListener('click', async () => {
+    let dirHandle;
+    try { dirHandle = await window.showDirectoryPicker(); }
+    catch (err) { if (err.name === 'AbortError') return; setStatus('Could not open folder picker: ' + describeError(err), 'err'); return; }
+    loadBtn.disabled = true; loadBtn.classList.add('loading');
+    setStatus(`Reading "${dirHandle.name}"...`);
+    try {
+      const files = [];
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') files.push(await entry.getFile());
+      }
+      const r = await buildGroupFromFiles(dirHandle.name, files);
+      setStatus(r.loadedCount
+        ? (r.skippedCount ? `Loaded ${r.loadedCount} images. ${r.skippedCount} skipped, reasons in console.` : `Loaded ${r.loadedCount} georeferenced images.`)
+        : (r.reasons.length ? 'Nothing loaded. ' + r.reasons[0] : 'No images with matching world files found.'),
+        r.loadedCount ? 'ok' : 'err');
+    } catch (err) { console.error(err); setStatus('Error: ' + describeError(err), 'err'); }
+    finally { loadBtn.disabled = false; loadBtn.classList.remove('loading'); }
+  });
+
+  function readEntriesPromise(reader) {
+    return new Promise((res, rej) => reader.readEntries(res, rej));
+  }
+  async function readEntryTree(entry, out) {
+    if (entry.isFile) {
+      const f = await new Promise((res, rej) => entry.file(res, rej));
+      out.push(f);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await readEntriesPromise(reader);
+        for (const e of batch) await readEntryTree(e, out);
+      } while (batch.length);
+    }
+  }
+
+  let dragDepth = 0;
+  function hasFiles(e) {
+    return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  }
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    dropHint.classList.add('visible');
+  });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('dragleave', (e) => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) dropHint.classList.remove('visible');
+  });
+  window.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropHint.classList.remove('visible');
+
+    loadBtn.disabled = true; loadBtn.classList.add('loading');
+    setStatus('Reading dropped items...');
+    try {
+      const bundles = [];
+      const loose = [];
+      for (const item of Array.from(e.dataTransfer.items || [])) {
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry && entry.isDirectory) {
+          const files = [];
+          await readEntryTree(entry, files);
+          bundles.push({ name: entry.name, files });
+        } else if (entry && entry.isFile) {
+          const f = await new Promise((res) => entry.file(res, () => {}));
+          if (f) loose.push(f);
+        }
+      }
+      if (!bundles.length && !loose.length) {
+        for (const f of Array.from(e.dataTransfer.files || [])) loose.push(f);
+      }
+      if (loose.length) bundles.push({ name: 'Dropped files', files: loose });
+
+      let totalLoaded = 0, totalSkipped = 0;
+      const allReasons = [];
+      for (const b of bundles) {
+        const r = await buildGroupFromFiles(b.name, b.files);
+        totalLoaded += r.loadedCount;
+        totalSkipped += r.skippedCount;
+        allReasons.push(...r.reasons);
+      }
+      setStatus(totalLoaded
+        ? `Loaded ${totalLoaded} images. ${totalSkipped} skipped, reasons in console.`
+        : (allReasons.length ? 'Nothing loaded. ' + allReasons[0] : 'No georeferenced images found in the drop.'),
+        totalLoaded ? 'ok' : 'err');
+    } catch (err) {
+      console.error(err);
+      setStatus('Drop error: ' + describeError(err), 'err');
+    } finally {
+      loadBtn.disabled = false; loadBtn.classList.remove('loading');
+    }
+  });
+
+  /* ================= Generator: metadata parsing ================= */
+  function parseTiff(dv, base) {
+    const little = dv.getUint16(base) === 0x4949;
+    const g16 = (o) => dv.getUint16(base + o, little);
+    const g32 = (o) => dv.getUint32(base + o, little);
+    if (g16(2) !== 0x2A) return null;
+    const ifd0 = g32(4);
+    const out = {};
+    let gpsIfd = null, exifIfd = null;
+
+    const readAscii = (valOff, count) => {
+      const dataOff = count <= 4 ? valOff : g32(valOff);
+      let s = '';
+      for (let i = 0; i < count; i++) {
+        const c = dv.getUint8(base + dataOff + i);
+        if (c === 0) break;
+        s += String.fromCharCode(c);
+      }
+      return s.trim();
+    };
+    const readRational = (valOff) => {
+      const dataOff = g32(valOff);
+      const num = g32(dataOff);
+      const den = g32(dataOff + 4);
+      return den ? num / den : NaN;
+    };
+
+    const count = g16(ifd0);
+    for (let i = 0; i < count; i++) {
+      const e = ifd0 + 2 + i * 12;
+      const tag = g16(e);
+      const n = g32(e + 4);
+      const v = e + 8;
+      if (tag === 0x8825) gpsIfd = g32(v);
+      else if (tag === 0x8769) exifIfd = g32(v);
+      else if (tag === 0x010F) out.make = readAscii(v, n);
+      else if (tag === 0x0110) out.model = readAscii(v, n);
+    }
+    if (exifIfd != null) {
+      const c2 = g16(exifIfd);
+      for (let i = 0; i < c2; i++) {
+        const e = exifIfd + 2 + i * 12;
+        if (g16(e) === 0x920A) { out.focal = readRational(e + 8); break; }
+      }
+    }
+    if (gpsIfd != null) {
+      const gps = {};
+      const c3 = g16(gpsIfd);
+      for (let i = 0; i < c3; i++) {
+        const e = gpsIfd + 2 + i * 12;
+        const tag = g16(e);
+        const n = g32(e + 4);
+        const v = e + 8;
+        if (tag === 1) gps.latRef = readAscii(v, n);
+        else if (tag === 3) gps.lonRef = readAscii(v, n);
+        else if (tag === 2 || tag === 4) {
+          const dataOff = g32(v);
+          const d = g32(dataOff) / (g32(dataOff + 4) || 1);
+          const m = g32(dataOff + 8) / (g32(dataOff + 12) || 1);
+          const s = g32(dataOff + 16) / (g32(dataOff + 20) || 1);
+          gps[tag === 2 ? 'lat' : 'lon'] = d + m / 60 + s / 3600;
+        }
+        else if (tag === 5) gps.altRef = dv.getUint8(base + v);
+        else if (tag === 6) gps.alt = readRational(v);
+      }
+      if (gps.lat != null && gps.latRef === 'S') gps.lat = -gps.lat;
+      if (gps.lon != null && gps.lonRef === 'W') gps.lon = -gps.lon;
+      if (gps.alt != null && gps.altRef === 1) gps.alt = -gps.alt;
+      out.gps = gps;
+    }
+    return out;
+  }
+
+  function parseExifFromBuffer(buf) {
+    const dv = new DataView(buf);
+    if (dv.byteLength < 4 || dv.getUint16(0) !== 0xFFD8) return null;
+    let off = 2;
+    while (off + 4 <= dv.byteLength) {
+      if (dv.getUint8(off) !== 0xFF) { off += 1; continue; }
+      const marker = dv.getUint8(off + 1);
+      if (marker === 0xDA) break;
+      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { off += 2; continue; }
+      const segLen = dv.getUint16(off + 2);
+      if (marker === 0xE1 && off + 10 <= dv.byteLength) {
+        const p = off + 4;
+        if (dv.getUint32(p) === 0x45786966 && dv.getUint16(p + 4) === 0x0000) {
+          const res = parseTiff(dv, p + 6);
+          if (res) return res;
+        }
+      }
+      off += 2 + segLen;
+    }
+    return null;
+  }
+
+  function extractXmp(buf) {
+    try {
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf));
+      const s = text.indexOf('<x:xmpmeta');
+      if (s === -1) return null;
+      const e = text.indexOf('</x:xmpmeta>', s);
+      if (e === -1) return null;
+      const doc = new DOMParser().parseFromString(text.slice(s, e + 12), 'application/xml');
+      let desc = null;
+      const all = doc.getElementsByTagName('*');
+      for (const el of all) { if (el.localName === 'Description') { desc = el; break; } }
+      if (!desc) return null;
+      const pick = (local) => {
+        for (const a of desc.attributes) if (a.localName === local) return parseFloat(a.value);
+        return NaN;
+      };
+      return { relAlt: pick('RelativeAltitude'), yaw: pick('FlightYawDegree') };
+    } catch (e) { return null; }
+  }
+
+  /* ================= Generator: models, zone, WKT ================= */
+  const DRONE_MODELS = [
+    { id: 'auto', name: 'Auto (detect from EXIF)' },
+    { id: 'mavic4pro', name: 'DJI Mavic 4 Pro (Hasselblad)', sensorWidth: 17.3, focal: 14.45, patterns: ['L3D-100C', 'MAVIC 4 PRO'] },
+    { id: 'mavic3', name: 'DJI Mavic 3 / 3 Pro (Hasselblad)', sensorWidth: 17.3, focal: 12.29, patterns: ['L2D-20C', 'MAVIC 3'] },
+    { id: 'mavic2pro', name: 'DJI Mavic 2 Pro', sensorWidth: 13.2, focal: 10.26, patterns: ['L1D-20C', 'MAVIC 2 PRO'] },
+    { id: 'p4p', name: 'DJI Phantom 4 Pro / RTK', sensorWidth: 13.2, focal: 8.8, patterns: ['FC6310', 'PHANTOM 4 PRO'] },
+    { id: 'custom', name: 'Custom', sensorWidth: null, focal: null }
+  ];
+
+  function initModelSelect() {
+    DRONE_MODELS.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.name;
+      modelSelect.appendChild(o);
+    });
+    modelSelect.value = 'auto';
+  }
+  initModelSelect();
+
+  function detectModelId(make, model) {
+    const s = `${make || ''} ${model || ''}`.toUpperCase();
+    for (const m of DRONE_MODELS) {
+      if (!m.patterns) continue;
+      if (m.patterns.some(p => s.includes(p))) return m.id;
+    }
+    return null;
+  }
+
+  function utmZoneFor(lon) { return Math.floor((lon + 180) / 6) + 1; }
+  function projStringFor(lon, lat) {
+    const zone = utmZoneFor(lon);
+    return `+proj=utm +zone=${zone}${lat < 0 ? ' +south' : ''} +datum=WGS84 +units=m +no_defs`;
+  }
+  function wktForZone(zone, south) {
+    const cm = zone * 6 - 183;
+    const code = (south ? 32700 : 32600) + zone;
+    return `PROJCS["WGS 84 / UTM zone ${zone}${south ? 'S' : 'N'}",GEOGCS["GCS_WGS_84",DATUM["D_WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],PARAMETER["central_meridian",${cm}],PARAMETER["scale_factor",0.9996],PARAMETER["latitude_of_origin",0],UNIT["meter",1],AUTHORITY["EPSG",${code}]]` +
+      ',VERTCS["EGM96_height",VDATUM["EGM96_Geoid"],PARAMETER["Vertical_Shift",0],PARAMETER["Direction",1],UNIT["meter",1],AUTHORITY["EPSG",5773]]';
+  }
+
+  function currentModelConstants() {
+    const id = modelSelect.value === 'auto' ? genDetectedModelId : modelSelect.value;
+    if (id === 'custom') {
+      return { sensorWidth: parseFloat(customSensorEl.value), focal: parseFloat(customFocalEl.value) };
+    }
+    const m = DRONE_MODELS.find(x => x.id === id);
+    return m ? { sensorWidth: m.sensorWidth, focal: m.focal } : { sensorWidth: NaN, focal: NaN };
+  }
+
+  /* ================= Generator: scan, preview, zip ================= */
+  function openGenerator() {
+    groupsSection.style.display = 'none';
+    transformPanel.classList.remove('visible');
+    generatorSection.style.display = 'flex';
+  }
+  function closeGenerator() {
+    generatorSection.style.display = 'none';
+    groupsSection.style.display = 'block';
+  }
+  genBackBtn.addEventListener('click', closeGenerator);
+
+  modelSelect.addEventListener('change', () => {
+    customFields.style.display = modelSelect.value === 'custom' ? 'flex' : 'none';
+    renderGenTable();
+  });
+  customSensorEl.addEventListener('input', renderGenTable);
+  customFocalEl.addEventListener('input', renderGenTable);
+
+  function renderGenTable() {
+    genTableBody.innerHTML = '';
+    const consts = currentModelConstants();
+    for (const it of genItems) {
+      const tr = document.createElement('tr');
+      const alt = it.relAlt ?? it.exifAlt;
+      let gsdTxt = '—';
+      if (isFinite(alt) && it.width && isFinite(consts.sensorWidth) && isFinite(consts.focal) && consts.focal > 0) {
+        gsdTxt = ((alt * consts.sensorWidth) / (consts.focal * it.width)).toFixed(5);
+      }
+      const zoneTxt = it.lon != null ? String(utmZoneFor(it.lon)) : '—';
+      const statusTxt = it.warnings.length ? it.warnings.join(', ') : (it.hasWorld ? 'has sidecar' : 'ready');
+      const cells = [
+        it.name,
+        [it.make, it.model].filter(Boolean).join(' ') || '—',
+        it.width ? `${it.width}x${it.height}` : '—',
+        isFinite(alt) ? alt.toFixed(1) : '—',
+        isFinite(it.yaw) ? it.yaw.toFixed(1) : '—',
+        gsdTxt,
+        zoneTxt,
+        statusTxt
+      ];
+      cells.forEach((c, i) => {
+        const td = document.createElement('td');
+        td.textContent = c;
+        if (i === 7 && it.warnings.length) td.classList.add('warn');
+        tr.appendChild(td);
+      });
+      genTableBody.appendChild(tr);
+    }
+  }
+
+  async function runSidecarScan(files, folderName) {
+    genFolderName = folderName;
+    genWorldBases = new Set();
+    for (const f of files) {
+      const l = f.name.toLowerCase();
+      const m = l.match(/^(.*)\.(jgw|pgw|tfw)$/);
+      if (m) genWorldBases.add(m[1]);
+    }
+
+    genItems = [];
+    for (const file of files) {
+      if (!/\.(jpg|jpeg|png)$/i.test(file.name)) continue;
+      const item = { name: file.name, warnings: [] };
+      try {
+        const buf = await file.slice(0, 2 * 1024 * 1024).arrayBuffer();
+        const exif = parseExifFromBuffer(buf) || {};
+        const size = await readImageSize(file);
+        item.width = size ? size.width : null;
+        item.height = size ? size.height : null;
+        item.make = exif.make || null;
+        item.model = exif.model || null;
+        item.focal = isFinite(exif.focal) ? exif.focal : null;
+        const gps = exif.gps || {};
+        item.lat = gps.lat ?? null;
+        item.lon = gps.lon ?? null;
+        item.exifAlt = gps.alt ?? null;
+        const xmp = extractXmp(buf) || {};
+        item.relAlt = isFinite(xmp.relAlt) ? xmp.relAlt : null;
+        item.yaw = isFinite(xmp.yaw) ? xmp.yaw : null;
+        if (item.lat == null || item.lon == null) item.warnings.push('no GPS');
+        if (item.relAlt == null) item.warnings.push('no XMP alt');
+        if (item.yaw == null) item.warnings.push('no yaw');
+        const base = item.name.replace(/\.[^.]+$/, '').toLowerCase();
+        item.hasWorld = genWorldBases.has(base);
+      } catch (e) {
+        item.warnings.push(describeError(e));
+      }
+      genItems.push(item);
+    }
+
+    genDetectedModelId = null;
+    for (const it of genItems) {
+      if (it.make || it.model) {
+        genDetectedModelId = detectModelId(it.make, it.model);
+        if (genDetectedModelId) break;
+      }
+    }
+
+    genFolderNameEl.textContent = `${folderName} (${genItems.length} images)`;
+    modelSelect.value = 'auto';
+    customFields.style.display = 'none';
+    renderGenTable();
+    openGenerator();
+    setStatus(genDetectedModelId
+      ? `Detected ${DRONE_MODELS.find(m => m.id === genDetectedModelId).name} from EXIF. Review the table, then generate.`
+      : 'No known camera detected in EXIF. Choose a drone model before generating.',
+      genDetectedModelId ? 'ok' : 'err');
+  }
+
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  async function generateSidecarZip() {
+    if (!genItems.length) { setStatus('Pick a folder first.', 'err'); return; }
+    const consts = currentModelConstants();
+    if (!isFinite(consts.sensorWidth) || !isFinite(consts.focal) || consts.sensorWidth <= 0 || consts.focal <= 0) {
+      setStatus('Set a valid sensor width and focal length first.', 'err');
+      return;
+    }
+    const altOverride = parseFloat(altOverrideEl.value);
+    const skipExisting = skipExistingEl.checked;
+    const zip = new JSZip();
+    let written = 0;
+    const issues = [];
+    let batchZone = null;
+    let batchSouth = false;
+
+    for (const it of genItems) {
+      const base = it.name.replace(/\.[^.]+$/, '');
+      const ext = it.name.toLowerCase().split('.').pop();
+      const worldExt = ext === 'png' ? '.pgw' : '.jgw';
+      if (skipExisting && it.hasWorld) continue;
+      if (it.lat == null || it.lon == null) { issues.push(`${it.name}: no GPS`); continue; }
+      if (!it.width || !it.height) { issues.push(`${it.name}: unreadable dimensions`); continue; }
+      const alt = it.relAlt ?? (isFinite(altOverride) ? altOverride : it.exifAlt);
+      if (!isFinite(alt) || alt <= 0) { issues.push(`${it.name}: no altitude available`); continue; }
+      const focal = isFinite(it.focal) ? it.focal : consts.focal;
+      const yaw = isFinite(it.yaw) ? it.yaw : 0;
+      const zone = utmZoneFor(it.lon);
+      const south = it.lat < 0;
+      if (batchZone === null) { batchZone = zone; batchSouth = south; }
+      else if (zone !== batchZone) { issues.push(`${it.name}: zone ${zone} differs from batch zone ${batchZone}, review before using`); }
+
+      const [east, north] = proj4('+proj=longlat +datum=WGS84 +no_defs', projStringFor(it.lon, it.lat), [it.lon, it.lat]);
+      const gsd = (alt * consts.sensorWidth) / (focal * it.width);
+      const alpha = yaw * Math.PI / 180;
+      const kA = gsd * Math.cos(alpha);
+      const kB = -gsd * Math.sin(alpha);
+      const kD = -gsd * Math.sin(alpha);
+      const kE = -gsd * Math.cos(alpha);
+      const kC = east - (it.width / 2 * kA + it.height / 2 * kB);
+      const kF = north - (it.width / 2 * kD + it.height / 2 * kE);
+
+      const jgw = [kA, kD, kB, kE].map(v => v.toFixed(16)).concat([kC.toFixed(10), kF.toFixed(10)]).join('\r\n') + '\r\n';
+      zip.file(base + worldExt, jgw);
+      zip.file(base + '.prj', wktForZone(zone, south));
+      written++;
+    }
+
+    if (!written) {
+      setStatus('Nothing generated. ' + (issues[0] || 'No eligible images.'), 'err');
+      issues.forEach(i => console.warn('Generator skipped ' + i));
+      return;
+    }
+
+    genWriteBtn.disabled = true;
+    genWriteBtn.textContent = 'Building zip...';
+    try {
+      const blob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(blob, `${genFolderName || 'sidecars'}_sidecars.zip`);
+      setStatus(`Generated ${written} sidecar pairs. Unzip into the image folder, then Add Drone Folder. ${issues.length ? issues.length + ' skipped, see console.' : ''}`, 'ok');
+      issues.forEach(i => console.warn('Generator skipped ' + i));
+    } catch (err) {
+      console.error(err);
+      setStatus('Zip error: ' + describeError(err), 'err');
+    } finally {
+      genWriteBtn.disabled = false;
+      genWriteBtn.textContent = 'Generate Sidecars ZIP';
+    }
+  }
+  genWriteBtn.addEventListener('click', generateSidecarZip);
+
+  sidecarBtn.addEventListener('click', async () => {
+    if (window.showDirectoryPicker) {
+      try {
+        const dirHandle = await window.showDirectoryPicker();
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === 'file') files.push(await entry.getFile());
+        }
+        await runSidecarScan(files, dirHandle.name);
+      } catch (err) {
+        if (err.name !== 'AbortError') setStatus('Could not open folder picker: ' + describeError(err), 'err');
+      }
+    } else {
+      sidecarInput.click();
+    }
+  });
+
+  sidecarInput.addEventListener('change', async () => {
+    const files = Array.from(sidecarInput.files || []);
+    if (!files.length) return;
+    const rel = files[0].webkitRelativePath || '';
+    const folderName = rel ? rel.split('/')[0] : 'Selected folder';
+    await runSidecarScan(files, folderName);
+    sidecarInput.value = '';
+  });
+</script>
+</body>
+</html>
